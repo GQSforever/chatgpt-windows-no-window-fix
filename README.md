@@ -1,6 +1,6 @@
 # Windows 版 ChatGPT 有进程却没有窗口：cua_node 运行时部署失败的排查、修复与更新后复发记录
 
-> 首次记录：2026-09-08；更新：2026-09-09。新增第 8 节，记录新版下再次无窗口及修复结果。
+> 首次记录：2026-09-08；更新：2026-09-09。新增第 8 节，记录新版下再次无窗口及修复结果；第 9 节提供修复脚本下载和使用说明。
 
 双击 ChatGPT，任务管理器里能看到进程，桌面上却始终没有窗口。应用没有立即退出，也没有弹出错误提示，单从界面上很难判断它卡在了哪里。
 
@@ -326,3 +326,50 @@ manifest.json
 
 本次复发及恢复与运行时部署未完成的判断一致，但没有新增底层复制错误码或源码证据，仍不足以进一步断言具体加密机制或复制 API 是根因。
 
+
+## 9. 修复脚本下载与双击运行
+
+将排障对话中生成的两个脚本放到仓库根目录，方便遇到相同故障时复用：
+
+| 文件 | 用途 | 下载 |
+| --- | --- | --- |
+| [Fix-ChatGPT.bat](./Fix-ChatGPT.bat) | 双击运行的入口，调用同目录下的 PowerShell 脚本，结束后暂停显示结果 | [下载 BAT](https://raw.githubusercontent.com/GQSforever/chatgpt-windows-no-window-fix/main/Fix-ChatGPT.bat) |
+| [Fix-ChatGPT.ps1](./Fix-ChatGPT.ps1) | 检测安装包和 staging、复制并检查 runtime、尝试启动应用 | [下载 PS1](https://raw.githubusercontent.com/GQSforever/chatgpt-windows-no-window-fix/main/Fix-ChatGPT.ps1) |
+
+### 9.1 使用方法
+
+1. 下载上面两个文件，保留完整文件名，放在**同一个文件夹**中。也可以在仓库首页选择 **Code → Download ZIP**，解压后使用根目录中的文件。若直接下载链接在浏览器中显示代码，请使用“另存为”，避免保存成网页或附加 `.txt` 后缀。
+2. 先按前文核对故障：当前版本对应的 runtime 未部署完成，本次启动生成了新的 staging 目录。脚本按修改时间选择最新 staging，并不会独立验证它与当前安装包的对应关系；如果只是历史残留或对应关系不明确，应先继续排查。
+3. 保存正在进行的工作。脚本在需要复制 runtime 时会强制结束 `ChatGPT` 进程。
+4. **双击 `Fix-ChatGPT.bat`**。它会自动调用同目录下的 `Fix-ChatGPT.ps1`，无需单独打开 PowerShell。
+5. 等待复制和检查结束，查看窗口内的输出。若应用未自动打开，从开始菜单手动启动；最终以 ChatGPT 窗口正常出现为准。
+
+两个文件的放置方式：
+
+```text
+chatgpt_fix/
+├── Fix-ChatGPT.bat  ← 双击这个文件
+└── Fix-ChatGPT.ps1
+```
+
+也可以为 `Fix-ChatGPT.bat` 创建桌面快捷方式，但应保持原来的两个文件放在一起。BAT 中的 `-ExecutionPolicy Bypass` 用于本次 PowerShell 调用，不会通过 `Set-ExecutionPolicy` 修改系统的持久执行策略。
+
+### 9.2 脚本实际执行的步骤
+
+- 获取当前 `OpenAI.Codex` 安装包，定位包内的 `app\resources\cua_node`。
+- 从修改时间最新的 `.staging-<runtimeId>-<随机后缀>` 目录名提取 runtime ID。
+- 检查源目录中的 `bin\node.exe`、`bin\node_repl.exe` 和 `manifest.json`。
+- 若目标目录的必要文件存在且文件数量相同，跳过复制；否则结束 ChatGPT 进程，使用 `xcopy /E /I /H /Y /G` 复制到正式目录。
+- 检查复制退出码、目标必要文件和源/目标文件数量。
+- 尝试启动 ChatGPT，等待约 3 秒后检查是否出现非零 `MainWindowHandle`。
+- 提示 staging 残留，但不自动删除。
+
+### 9.3 验证范围与限制
+
+这里上传的是当时生成的脚本，发布时已通过 PowerShell 语法解析检查。前文确认成功的是手动复制修复；没有将“脚本生成完成”当作整套脚本已经实机验证成功。
+
+脚本的文件检查是“必要文件存在 + 数量一致”，不是逐文件内容或哈希校验；它显示“runtime 修复成功”也不等于窗口已经恢复。若需要更细的检查，可以使用第 6 节的方法。
+
+自动脚本与第 4 节手动模板有所不同：**它不备份已有目标目录，复制时可能覆盖同名文件**。此外，没有发现 staging 时会跳过复制并退出；未检测到窗口时只发出提示，不一定返回失败退出码。请阅读实际输出，不要仅凭 BAT 显示“脚本已结束”判断修复成功。
+
+PS1 保留 UTF-8 BOM，以便 Windows PowerShell 5.1 正确读取中文内容。
